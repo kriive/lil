@@ -1,0 +1,9 @@
+[db]
+dsn = ".db/lild.sqlite" # default: "~/.lild/db"
+
+[http]
+addr = "localhost:8082"
+
+[general]
+alphabet = "abcdefg" # default: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+key_length = 4 # default: 6

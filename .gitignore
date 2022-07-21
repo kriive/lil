@@ -1,0 +1,5 @@
+# Ignore toml configuration files
+*.toml
+
+# Ignore test database
+.db/
