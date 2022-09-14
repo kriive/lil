@@ -10,9 +10,12 @@ import (
 	"github.com/kriive/lil/generate"
 )
 
-func (s *Server) registerShortRoutes(r chi.Router) {
-	r.Post("/shorten", s.handleShortenURL())
+func (s *Server) registerShortPublicRoutes(r chi.Router) {
 	r.Handle("/s/{key}", s.handleShortenedURL())
+}
+
+func (s *Server) registerShortPrivateRoutes(r chi.Router) {
+	r.Post("/shorten", s.handleShortenURL())
 }
 
 func (s *Server) handleShortenURL() http.HandlerFunc {

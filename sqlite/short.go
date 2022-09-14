@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/kriive/lil"
@@ -26,6 +27,8 @@ func (s *ShortService) FindShortByKey(ctx context.Context, key string) (*lil.Sho
 
 	short, err := findShortByKey(ctx, tx, key)
 	if err != nil {
+		return nil, err
+	} else if err := attachShortAssociations(ctx, tx, short); err != nil {
 		return nil, err
 	}
 
@@ -59,6 +62,7 @@ func findShorts(ctx context.Context, tx *Tx, filter lil.ShortFilter) (_ []*lil.S
 			SELECT
 				key,
 				url,
+				owner_id,
 				created_at,
 				updated_at,
 				COUNT(*) OVER()
@@ -78,6 +82,7 @@ func findShorts(ctx context.Context, tx *Tx, filter lil.ShortFilter) (_ []*lil.S
 		if err := rows.Scan(
 			&short.Key,
 			(*DBUrl)(&short.URL),
+			&short.OwnerID,
 			(*NullTime)(&short.CreatedAt),
 			(*NullTime)(&short.UpdatedAt),
 			&n,
@@ -116,12 +121,19 @@ func (s *ShortService) CreateShort(ctx context.Context, short *lil.Short) error 
 
 	if err := createShort(ctx, tx, short); err != nil {
 		return err
+	} else if attachShortAssociations(ctx, tx, short); err != nil {
+		return err
 	}
-
 	return tx.Commit()
 }
 
 func createShort(ctx context.Context, tx *Tx, short *lil.Short) error {
+	ownerID := lil.UserIDFromContext(ctx)
+	if ownerID == 0 {
+		return lil.Errorf(lil.EUNAUTHORIZED, "You must be logged in to create a short.")
+	}
+	short.OwnerID = ownerID
+
 	short.CreatedAt = tx.now
 	short.UpdatedAt = short.CreatedAt
 
@@ -133,13 +145,15 @@ func createShort(ctx context.Context, tx *Tx, short *lil.Short) error {
 			INSERT INTO shorts (
 				url,
 				key,
+				owner_id,
 				created_at,
 				updated_at
 			)
-			VALUES (?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?)
 	`,
 		(*DBUrl)(&short.URL),
 		short.Key,
+		short.OwnerID,
 		(*NullTime)(&short.CreatedAt),
 		(*NullTime)(&short.UpdatedAt),
 	)
@@ -175,5 +189,13 @@ func deleteShort(ctx context.Context, tx *Tx, key string) error {
 		return FormatError(err)
 	}
 
+	return nil
+}
+
+// attachShortAssociations is a helper function to look up and attach the owner user to the short.
+func attachShortAssociations(ctx context.Context, tx *Tx, short *lil.Short) (err error) {
+	if short.Owner, err = findUserByID(ctx, tx, short.OwnerID); err != nil {
+		return fmt.Errorf("attach short user: %w", err)
+	}
 	return nil
 }

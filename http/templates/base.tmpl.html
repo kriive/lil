@@ -1,0 +1,18 @@
+{{define "base"}}
+<!doctype html>
+<html lang='en'>
+    <head>
+        <meta charset='utf-8'>
+        <title>{{template "title" .}} - lil</title>
+    </head>
+    <body>
+        <header>
+            <h1><a href='/'>lil</a></h1>
+        </header>
+        <main>
+            {{template "main" .}}
+        </main>
+        <footer>Powered by <a href='https://go.dev/'>Go</a></footer>
+    </body>
+</html>
+{{end}}

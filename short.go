@@ -7,8 +7,9 @@ import (
 )
 
 var (
-	ErrEmptyURL = Errorf(EINVALID, "Missing URL.")
-	ErrEmptyKey = Errorf(EINVALID, "Missing Key.")
+	ErrEmptyURL   = Errorf(EINVALID, "Missing URL.")
+	ErrEmptyKey   = Errorf(EINVALID, "Missing Key.")
+	ErrEmptyOwner = Errorf(EINVALID, "Missing owner.")
 )
 
 // Short defines a shortened URL.
@@ -18,6 +19,9 @@ type Short struct {
 
 	// Key stores the key needed to retrieve the original URL.
 	Key string `json:"key"`
+
+	Owner   *User `json:"owner"`
+	OwnerID int   `json:"ownerID"`
 
 	// CreatedAt and UpdatedAt get filled by the service.
 	CreatedAt time.Time `json:"created_at"`
@@ -61,6 +65,10 @@ func (s *Short) Validate() error {
 
 	if s.Key == "" {
 		return ErrEmptyKey
+	}
+
+	if s.OwnerID == 0 {
+		return ErrEmptyOwner
 	}
 
 	return nil

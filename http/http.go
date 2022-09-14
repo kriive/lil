@@ -8,6 +8,26 @@ import (
 	"github.com/kriive/lil"
 )
 
+// SessionCookieName is the name of the cookie used to store the session.
+const SessionCookieName = "session"
+
+// Session represents session data stored in a secure cookie.
+type Session struct {
+	UserID      int    `json:"userID"`
+	RedirectURL string `json:"redirectURL"`
+	State       string `json:"state"`
+}
+
+// SetFlash sets the flash cookie for the next request to read.
+func SetFlash(w http.ResponseWriter, s string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "flash",
+		Value:    s,
+		Path:     "/",
+		HttpOnly: true,
+	})
+}
+
 // Error prints & optionally logs an error message.
 func Error(w http.ResponseWriter, r *http.Request, err error) {
 	// Extract error code & message.

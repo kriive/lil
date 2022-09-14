@@ -34,6 +34,8 @@ const (
 	DefaultAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 	DefaultKeyLength = 6
+
+	DefaultHTMLServeLocal = false
 )
 
 func main() {
@@ -96,13 +98,25 @@ func (m *Main) Run(ctx context.Context) (err error) {
 	}
 
 	shortService := sqlite.NewShortService(m.DB)
+	authService := sqlite.NewAuthService(m.DB)
+	userService := sqlite.NewUserService(m.DB)
 
 	m.HTTPServer.Addr = m.Config.HTTP.Addr
 	m.HTTPServer.Domain = m.Config.HTTP.Domain
 	m.HTTPServer.Alphabet = m.Config.General.Alphabet
 	m.HTTPServer.KeyLength = m.Config.General.KeyLength
 
+	m.HTTPServer.HashKey = m.Config.HTTP.HashKey
+	m.HTTPServer.BlockKey = m.Config.HTTP.BlockKey
+
+	m.HTTPServer.GitHubClientID = m.Config.GitHub.ClientID
+	m.HTTPServer.GitHubClientSecret = m.Config.GitHub.ClientSecret
+	m.HTTPServer.GoogleClientID = m.Config.Google.ClientID
+	m.HTTPServer.GoogleClientSecret = m.Config.Google.ClientSecret
+
+	m.HTTPServer.AuthService = authService
 	m.HTTPServer.ShortService = shortService
+	m.HTTPServer.UserService = userService
 
 	// Start the HTTP server.
 	if err := m.HTTPServer.Open(); err != nil {
@@ -187,13 +201,25 @@ type Config struct {
 	} `toml:"db"`
 
 	HTTP struct {
-		Addr   string `toml:"addr"`
-		Domain string `toml:"domain"`
+		Addr     string `toml:"addr"`
+		Domain   string `toml:"domain"`
+		HashKey  string `toml:"hash-key"`
+		BlockKey string `toml:"block-key"`
 	} `toml:"http"`
+
+	GitHub struct {
+		ClientID     string `toml:"client-id"`
+		ClientSecret string `toml:"client-secret"`
+	} `toml:"github"`
+
+	Google struct {
+		ClientID     string `toml:"client-id"`
+		ClientSecret string `toml:"client-secret"`
+	} `toml:"google"`
 
 	General struct {
 		Alphabet  string `toml:"alphabet"`
-		KeyLength int    `toml:"key_length"`
+		KeyLength int    `toml:"key-length"`
 	} `toml:"general"`
 }
 

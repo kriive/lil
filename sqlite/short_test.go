@@ -18,10 +18,13 @@ func TestShortService_CreateShort(t *testing.T) {
 
 		s := sqlite.NewShortService(db)
 
-		ctx := context.Background()
-
 		u, _ := url.Parse("https://example.com")
 		key := "12345"
+
+		_, ctx := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test",
+			Email: "Test",
+		})
 
 		short := &lil.Short{URL: *u, Key: key}
 		if err := s.CreateShort(ctx, short); err != nil {
@@ -30,6 +33,8 @@ func TestShortService_CreateShort(t *testing.T) {
 			t.Fatal("expected CreatedAt")
 		} else if short.UpdatedAt.IsZero() {
 			t.Fatal("expected UpdatedAt")
+		} else if short.Owner == nil {
+			t.Fatal("expected owner")
 		}
 
 		// Fetch short from database and compare.
