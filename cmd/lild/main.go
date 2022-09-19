@@ -34,8 +34,6 @@ const (
 	DefaultAlphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 	DefaultKeyLength = 6
-
-	DefaultHTMLServeLocal = false
 )
 
 func main() {
@@ -163,7 +161,6 @@ func (m *Main) Close() error {
 
 // ParseFlags parses the command line arguments & loads the config.
 
-//
 // This exists separately from the Run() function so that we can skip it
 // during end-to-end tests. Those tests will configure manually and call Run().
 func (m *Main) ParseFlags(ctx context.Context, args []string) error {

@@ -30,8 +30,8 @@ func (s *Server) registerAuthRoutes(r chi.Router) {
 // handleLogin handles the "GET /login" route. It simply renders an HTML login form.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	files := []string{
-		"ui/html/base.tmpl.html",
-		"ui/html/login/login.tmpl.html",
+		"templates/base.tmpl.html",
+		"templates/login/login.tmpl.html",
 	}
 
 	tmpl, err := template.ParseFS(templates, files...)
