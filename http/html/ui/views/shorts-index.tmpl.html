@@ -1,0 +1,13 @@
+{{define "title"}}Home page{{end}}
+
+{{define "main"}}
+<h2>Welcome! lil is a URL shortening service written in Go.</h2>
+<ul>
+    {{range .Shorts}}
+    <li>
+        <a href="{{.URL.String}}">Original URL: {{.URL.String}}</a>
+        <a href="/s/{{.Key}}">short URL</a>
+    </li>
+    {{end}}
+</ul>
+{{end}}

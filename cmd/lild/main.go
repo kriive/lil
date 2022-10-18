@@ -15,6 +15,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/kriive/lil"
 	"github.com/kriive/lil/http"
+	"github.com/kriive/lil/http/html"
 	"github.com/kriive/lil/sqlite"
 )
 
@@ -91,8 +92,39 @@ func (m *Main) Run(ctx context.Context) (err error) {
 	if m.DB.DSN, err = expandDSN(m.Config.DB.DSN); err != nil {
 		return fmt.Errorf("cannot expand dsn: %w", err)
 	}
+
 	if err := m.DB.Open(); err != nil {
 		return fmt.Errorf("cannot open db: %w", err)
+	}
+
+	htmlEngine, err := html.NewEngine(html.FS)
+	if err != nil {
+		return err
+	}
+
+	loginView, err := htmlEngine.LoginView()
+	if err != nil {
+		return err
+	}
+
+	shortView, err := htmlEngine.ShortView()
+	if err != nil {
+		return err
+	}
+
+	newShort, err := htmlEngine.NewShortView()
+	if err != nil {
+		return err
+	}
+
+	shortIndexView, err := htmlEngine.ShortsIndexView()
+	if err != nil {
+		return err
+	}
+
+	indexView, err := htmlEngine.IndexView()
+	if err != nil {
+		return err
 	}
 
 	shortService := sqlite.NewShortService(m.DB)
@@ -115,6 +147,13 @@ func (m *Main) Run(ctx context.Context) (err error) {
 	m.HTTPServer.AuthService = authService
 	m.HTTPServer.ShortService = shortService
 	m.HTTPServer.UserService = userService
+
+	// Attach all the views
+	m.HTTPServer.Views.LoginView = loginView
+	m.HTTPServer.Views.ShortView = shortView
+	m.HTTPServer.Views.NewShort = newShort
+	m.HTTPServer.Views.IndexView = indexView
+	m.HTTPServer.Views.ShortsIndexView = shortIndexView
 
 	// Start the HTTP server.
 	if err := m.HTTPServer.Open(); err != nil {

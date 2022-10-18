@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"html/template"
 	"log"
 	"net"
 	"net/http"
@@ -15,6 +14,7 @@ import (
 	"github.com/gorilla/securecookie"
 	"github.com/kriive/lil"
 	"github.com/kriive/lil/http/assets"
+	"github.com/kriive/lil/http/html"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
@@ -54,6 +54,15 @@ type Server struct {
 	AuthService  lil.AuthService
 	ShortService lil.ShortService
 	UserService  lil.UserService
+
+	// Views
+	Views struct {
+		IndexView       html.Renderer
+		ShortsIndexView html.Renderer
+		LoginView       html.Renderer
+		ShortView       html.Renderer
+		NewShort        html.Renderer
+	}
 }
 
 func NewServer() *Server {
@@ -87,25 +96,14 @@ func NewServer() *Server {
 	})
 
 	s.router.Mount("/", router)
-	s.router.Get("/", s.handleIndex)
+	s.router.Get("/", s.handleIndex())
 
 	return s
 }
 
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if lil.UserIDFromContext(r.Context()) == 0 {
-		files := []string{
-			"templates/base.tmpl.html",
-			"templates/index/index.tmpl.html",
-		}
-
-		tmpl, err := template.ParseFS(templates, files...)
-		if err != nil {
-			Error(w, r, err)
-			return
-		}
-
-		if err := tmpl.ExecuteTemplate(w, "base", nil); err != nil {
+func (s *Server) handleIndex() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := s.Views.IndexView.Render(w, nil); err != nil {
 			Error(w, r, err)
 			return
 		}

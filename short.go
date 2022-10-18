@@ -7,9 +7,10 @@ import (
 )
 
 var (
-	ErrEmptyURL   = Errorf(EINVALID, "Missing URL.")
-	ErrEmptyKey   = Errorf(EINVALID, "Missing Key.")
-	ErrEmptyOwner = Errorf(EINVALID, "Missing owner.")
+	ErrEmptyURL         = Errorf(EINVALID, "Missing URL.")
+	ErrEmptyKey         = Errorf(EINVALID, "Missing Key.")
+	ErrEmptyOwner       = Errorf(EINVALID, "Missing owner.")
+	ErrInvalidURLScheme = Errorf(EINVALID, "Invalid URL scheme. Only http and https are supported.")
 )
 
 // Short defines a shortened URL.
@@ -20,8 +21,8 @@ type Short struct {
 	// Key stores the key needed to retrieve the original URL.
 	Key string `json:"key"`
 
-	Owner   *User `json:"owner"`
-	OwnerID int   `json:"ownerID"`
+	Owner   *User `json:"-"`
+	OwnerID int   `json:"-"`
 
 	// CreatedAt and UpdatedAt get filled by the service.
 	CreatedAt time.Time `json:"created_at"`
@@ -61,6 +62,10 @@ type ShortFilter struct {
 func (s *Short) Validate() error {
 	if s.URL.String() == "" {
 		return ErrEmptyURL
+	}
+
+	if s.URL.Scheme != "https" && s.URL.Scheme != "http" {
+		return ErrInvalidURLScheme
 	}
 
 	if s.Key == "" {

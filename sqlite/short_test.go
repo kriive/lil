@@ -51,8 +51,13 @@ func TestShortService_CreateShort(t *testing.T) {
 
 		s := sqlite.NewShortService(db)
 
+		_, ctx := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test",
+			Email: "Test",
+		})
+
 		short := &lil.Short{}
-		if err := s.CreateShort(context.Background(), short); err == nil {
+		if err := s.CreateShort(ctx, short); err == nil {
 			t.Fatal("expected error")
 		} else if lil.ErrorCode(err) != lil.EINVALID || lil.ErrorMessage(err) != "Missing URL." {
 			t.Fatal(err)
@@ -68,7 +73,12 @@ func TestShortService_CreateShort(t *testing.T) {
 		u, _ := url.Parse("https://example.com")
 		short := &lil.Short{URL: *u}
 
-		if err := s.CreateShort(context.Background(), short); err == nil {
+		_, ctx := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test",
+			Email: "Test",
+		})
+
+		if err := s.CreateShort(ctx, short); err == nil {
 			t.Fatal("expected err")
 		} else if lil.ErrorCode(err) != lil.EINVALID || lil.ErrorMessage(err) != "Missing Key." {
 			t.Fatal(err)
@@ -81,7 +91,10 @@ func TestShortService_CreateShort(t *testing.T) {
 
 		s := sqlite.NewShortService(db)
 
-		ctx := context.Background()
+		_, ctx := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test",
+			Email: "Test",
+		})
 
 		u, _ := url.Parse("https://example.com")
 		short := &lil.Short{URL: *u, Key: "12345"}
@@ -94,6 +107,32 @@ func TestShortService_CreateShort(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+
+	t.Run("ErrInvalidURLScheme", func(t *testing.T) {
+		db := MustOpenDB(t)
+		defer MustCloseDB(t, db)
+
+		s := sqlite.NewShortService(db)
+
+		u, err := url.ParseRequestURI("invalid-scheme://www.google.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, ctx := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test",
+			Email: "Test",
+		})
+
+		if err := s.CreateShort(ctx, &lil.Short{
+			URL: *u,
+			Key: "12345",
+		}); err == nil {
+			t.Fatal("expected error")
+		} else if lil.ErrorCode(err) != lil.EINVALID || lil.ErrorMessage(err) != "Invalid URL scheme. Only http and https are supported." {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestShortService_FindShorts(t *testing.T) {
@@ -101,7 +140,10 @@ func TestShortService_FindShorts(t *testing.T) {
 		db := MustOpenDB(t)
 		defer MustCloseDB(t, db)
 
-		ctx := context.Background()
+		_, ctx := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test",
+			Email: "Test",
+		})
 
 		url1, _ := url.Parse("https://1.example.com")
 		key1 := "12345"

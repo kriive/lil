@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kriive/lil"
@@ -15,50 +16,137 @@ func (s *Server) registerShortPublicRoutes(r chi.Router) {
 }
 
 func (s *Server) registerShortPrivateRoutes(r chi.Router) {
-	r.Post("/shorten", s.handleShortenURL())
+	r.Post("/short/new", s.handleShortURLCreate())
+	r.Get("/short/new", s.handleShortURLNew())
+	r.Get("/short", s.handleShortsIndex())
 }
 
-func (s *Server) handleShortenURL() http.HandlerFunc {
-	type ShortenRequest struct {
-		URL string `json:"url"`
-	}
-	type ShortenResponse struct {
-		Key          string `json:"key"`
-		ShortenedURL string `json:"shortened_url"`
-	}
+// handleShortURLNew handles the "GET /short/new" route.
+// It renders an HTML form for editing a new dial.
+func (s *Server) handleShortURLNew() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		req := &ShortenRequest{}
-		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
-			Error(w, r, lil.Errorf(lil.EINVALID, "We couldn't parse the request body."))
+		if err := s.Views.ShortView.Render(w, nil); err != nil {
+			Error(w, r, err)
 			return
 		}
+	}
+}
 
-		uri, err := url.ParseRequestURI(req.URL)
-		if err != nil {
-			Error(w, r, lil.Errorf(lil.EINVALID, "The URL you provided is not valid."))
-			return
+// handleShortURLCreate handles the "POST /short/new" route.
+// It reads & writes data using HTML or JSON, depending on
+// HTTP Accept Header.
+func (s *Server) handleShortURLCreate() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		short := &lil.Short{}
+
+		// Format returned data based on HTTP accept header.
+		switch r.Header.Get("Accept") {
+		case "application/json":
+			if err := json.NewDecoder(r.Body).Decode(short); err != nil {
+				Error(w, r, lil.Errorf(lil.EINVALID, "We couldn't parse the request body."))
+				return
+			}
+		default:
+			url, err := url.ParseRequestURI(r.FormValue("url"))
+			if err != nil {
+				Error(w, r, lil.Errorf(lil.EINVALID, "Invalid URL passed."))
+				return
+			}
+
+			short.URL = *url
 		}
 
-		if uri.Scheme != "http" && uri.Scheme != "https" {
-			Error(w, r, lil.Errorf(lil.EINVALID, "The URL scheme you provided is not supported. Only HTTP and HTTPS are supported."))
-			return
-		}
+		var err error
 
-		key, err := generate.SecureStringFromAlphabet(s.KeyLength, s.Alphabet)
+		// Overwrite the possibly user-provided Key to avoid
+		// attacks and vanity URLs. A future version may actually
+		// permit those.
+		short.Key, err = generate.SecureStringFromAlphabet(s.KeyLength, s.Alphabet)
 		if err != nil {
 			Error(w, r, err)
 			return
 		}
 
-		short := &lil.Short{URL: *uri, Key: key}
 		if err := s.ShortService.CreateShort(r.Context(), short); err != nil {
 			Error(w, r, err)
 			return
 		}
 
-		if err := json.NewEncoder(w).Encode(&ShortenResponse{Key: key, ShortenedURL: s.URL() + "/" + key}); err != nil {
+		switch r.Header.Get("Accept") {
+		case "application/json":
+			if err := json.NewEncoder(w).Encode(short); err != nil {
+				Error(w, r, err)
+				return
+			}
+		default:
+			// This is the HTML one
+			if err := s.Views.NewShort.Render(w,
+				struct {
+					ShortURL    string
+					OriginalURL string
+				}{
+					ShortURL:    s.URL() + "/s/" + short.Key,
+					OriginalURL: short.URL.String(),
+				}); err != nil {
+				Error(w, r, err)
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) handleShortsIndex() http.HandlerFunc {
+	// findShortsResponse represents the output JSON struct for "GET /short".
+	type findShortsResponse struct {
+		Shorts []*lil.Short `json:"shorts"`
+		N      int          `json:"n"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Parse optional filter object.
+		var filter lil.ShortFilter
+		switch r.Header.Get("Content-type") {
+		case "application/json":
+			if err := json.NewDecoder(r.Body).Decode(&filter); err != nil {
+				Error(w, r, lil.Errorf(lil.EINVALID, "Invalid JSON body"))
+				return
+			}
+		default:
+			filter.Offset, _ = strconv.Atoi(r.URL.Query().Get("offset"))
+			filter.Limit = 20
+		}
+
+		// Fetch shorts from database.
+		shorts, n, err := s.ShortService.FindShorts(r.Context(), filter)
+		if err != nil {
 			Error(w, r, err)
 			return
+		}
+
+		// Render output based on HTTP accept header.
+		switch r.Header.Get("Accept") {
+		case "application/json":
+			w.Header().Set("Content-type", "application/json")
+			if err := json.NewEncoder(w).Encode(findShortsResponse{
+				Shorts: shorts,
+				N:      n,
+			}); err != nil {
+				LogError(r, err)
+				return
+			}
+
+		default:
+			if err := s.Views.ShortsIndexView.Render(w, struct {
+				Shorts []*lil.Short
+				N      int
+				Filter lil.ShortFilter
+			}{
+				Shorts: shorts,
+				N:      n,
+				Filter: filter,
+			}); err != nil {
+				Error(w, r, err)
+				return
+			}
 		}
 	}
 }

@@ -1,0 +1,15 @@
+{{define "title"}}Home page{{end}}
+
+{{define "main"}}
+<h2>What do you want to shorten?</h2>
+
+<form action="" method="POST">
+    <div>
+        <label for="url">Enter your URL to shorten: </label>
+        <input id="url" name="url" type="url" placeholder="Type your URL here" required>
+    </div>
+    <div>
+        <input type="submit" value="Shorten!">
+    </div>
+</form>
+{{end}}
