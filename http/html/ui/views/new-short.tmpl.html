@@ -1,7 +1,7 @@
-{{define "title"}}Home page{{end}}
+{{define "title"}}success - new short{{end}}
 
 {{define "main"}}
-    <h2>Your short URL has been created!</h2>
-    <p>Here's the short URL for <a href="{{.OriginalURL}}">this link</a>.</p>
-    <p>Your shortened URL: <a href="{{.ShortURL}}">{{.ShortURL}}</a>.</p>
+<h2>new short</h2>
+<p>here's the short url for <a href="{{.Data.OriginalURL}}">this link</a>.</p>
+<p>your shortened url: <a href="{{.Data.ShortURL}}">{{.Data.ShortURL}}</a>.</p>
 {{end}}

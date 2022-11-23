@@ -1,6 +1,25 @@
-{{define "title"}}Home page{{end}}
+{{define "title"}}home page{{end}}
 
 {{define "main"}}
-    <h2>Welcome! lil is a URL shortening service written in Go.</h2>
-    <p>Once you're logged in, you will see your shortened URLs here.</p>
+
+<h1>welcome!</h1>
+<p>once you're <a href="/login">logged in</a>, you will see your shortened URLs here.</p>
+<hr>
+<h2>what's lil?</h2>
+<p>lil is a simple URL shortening service written in Go. lil is a project by <a
+        href="https://github.com/kriive">kriive</a>. it was created to both solve a simple
+    problem and to learn some modern web tooling.</p>
+<p>lil's focus is to be simple to use and to use as few
+    services as possible: it runs on a single node, its frontend is written in plain HTML + CSS and it uses
+    SQLite as a database.</p>
+<hr>
+<h2>can i contribute?</h2>
+<p>of course! you can find the project <a href="https://github.com/kriive/lil">here</a>. make sure to check out
+    <a href="https://github.com/benbjohnson/wtf">this project</a>, this is the main inspiration for lil.
+</p>
+<hr>
+<h2>security</h2>
+<p>if you find a bug that can disclose personal user data, dump the database or something else, reach me out: you may be
+    eligible for a (symbolic) bug bounty of 1.37$.
+    contact me via email at kriive [at] havce [dot] it, or via telegram: t [dot] me [slash] kriive. </p>
 {{end}}

@@ -78,3 +78,8 @@ func (s *Short) Validate() error {
 
 	return nil
 }
+
+// Only the short owner can delete the short.
+func CanEditShort(ctx context.Context, short *Short) bool {
+	return short.OwnerID == UserIDFromContext(ctx)
+}

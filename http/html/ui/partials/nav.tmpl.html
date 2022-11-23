@@ -1,0 +1,18 @@
+{{define "nav"}}
+<div class="nav-bar">
+    <ul class="topnav">
+        <li><a class="{{if eq .URL.Path "/"}}active {{end}}logo" href="/">lil</a></li>
+        <li><a {{if eq .URL.Path "/short" }}class="active" {{end}} href="/short">my shorts</a></li>
+        <li><a {{if eq .URL.Path "/short/new" }}class="active" {{end}} href="/short/new">new short</a></li>
+
+        {{if .User}}
+        <form id="logoutForm" action="/logout" method="POST">
+			<input type="hidden" name="_method" value="DELETE"/>
+		</form>
+        <li class="right"><form><button type="submit" class="logout" form="logoutForm">Logout</button></form></li>
+        {{else}}
+        <li class="right"><a {{if eq .URL.Path "/login" }}class="active" {{end}} href="/login">login</a></li>
+        {{end}}
+    </ul>
+</div>
+{{end}}

@@ -1,18 +1,22 @@
 {{define "base"}}
 <!doctype html>
 <html lang='en'>
-    <head>
-        <meta charset='utf-8'>
-        <title>{{template "title" .}} - lil</title>
-    </head>
-    <body>
-        <header>
-            <h1><a href='/'>lil</a></h1>
-        </header>
-        <main>
+
+<head>
+    <meta charset='utf-8'>
+    <title>{{template "title" .}} - lil</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+
+<body>
+    {{template "nav" .}}
+    <div class="main-wrapper">
+        <div class="content">
+            {{if .Flash}}{{template "flash" .Flash}}{{end}}
             {{template "main" .}}
-        </main>
-        <footer>Powered by <a href='https://go.dev/'>Go</a></footer>
-    </body>
+        </div>
+    </div>
+</body>
+
 </html>
 {{end}}

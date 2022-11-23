@@ -28,21 +28,10 @@ func (s *Server) registerAuthRoutes(r chi.Router) {
 
 // handleLogin handles the "GET /login" route. It simply renders an HTML login form.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	// files := []string{
-	// 	"templates/base.tmpl.html",
-	// 	"templates/login/login.tmpl.html",
-	// }
-
-	// tmpl, err := template.ParseFS(templates, files...)
-	// if err != nil {
-	// 	Error(w, r, err)
-	// 	return
-	// }
-
-	// if err := tmpl.ExecuteTemplate(w, "base", nil); err != nil {
-	// 	Error(w, r, err)
-	// 	return
-	// }
+	if err := s.Views.LoginView.Render(w, r, nil); err != nil {
+		Error(w, r, err)
+		return
+	}
 }
 
 // handleLogout handles the "DELETE /logout" route. It clears the session

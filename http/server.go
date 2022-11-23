@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -71,7 +72,10 @@ func NewServer() *Server {
 		router: chi.NewRouter(),
 	}
 
-	s.server.Handler = s.router
+	// Our router is wrapped by another function handler to perform some
+	// middleware-like tasks that cannot be performed by actual middleware.
+	// This includes changing route paths for JSON endpoints & overridding methods.
+	s.server.Handler = http.HandlerFunc(s.serveHTTP)
 
 	// Setup endpoint to display deployed version.
 	s.router.Get("/debug/version", s.handleVersion)
@@ -81,7 +85,7 @@ func NewServer() *Server {
 	router.Use(s.authenticate)
 	router.Use(loadFlash)
 
-	router.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets.FS))))
+	router.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.FS(assets.FS))))
 
 	// Unauthenticated routes
 	router.Group(func(r chi.Router) {
@@ -95,15 +99,21 @@ func NewServer() *Server {
 		s.registerShortPrivateRoutes(r)
 	})
 
+	router.Get("/", s.handleIndex())
+
 	s.router.Mount("/", router)
-	s.router.Get("/", s.handleIndex())
 
 	return s
 }
 
 func (s *Server) handleIndex() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := s.Views.IndexView.Render(w, nil); err != nil {
+		if lil.UserFromContext(r.Context()) != nil {
+			http.Redirect(w, r, "/short/new", http.StatusFound)
+			return
+		}
+
+		if err := s.Views.IndexView.Render(w, r, nil); err != nil {
 			Error(w, r, err)
 			return
 		}
@@ -312,6 +322,33 @@ func ListenAndServeTLSRedirect(domain string) error {
 	return http.ListenAndServe(":80", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://"+domain, http.StatusFound)
 	}))
+}
+
+func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	// Override method for forms passing "_method" value.
+	if r.Method == http.MethodPost {
+		switch v := r.PostFormValue("_method"); v {
+		case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete:
+			r.Method = v
+		}
+	}
+
+	// Override content-type for certain extensions.
+	// This allows us to easily cURL API endpoints with a ".json" or ".csv"
+	// extension instead of having to explicitly set Content-type & Accept headers.
+	// The extensions are removed so they don't appear in the routes.
+	switch ext := path.Ext(r.URL.Path); ext {
+	case ".json":
+		r.Header.Set("Accept", "application/json")
+		r.Header.Set("Content-type", "application/json")
+		r.URL.Path = strings.TrimSuffix(r.URL.Path, ext)
+	case ".csv":
+		r.Header.Set("Accept", "text/csv")
+		r.URL.Path = strings.TrimSuffix(r.URL.Path, ext)
+	}
+
+	// Delegate remaining HTTP handling to the gorilla router.
+	s.router.ServeHTTP(w, r)
 }
 
 // authenticate is middleware for loading session data from a cookie or API key header.

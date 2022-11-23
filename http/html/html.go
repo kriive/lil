@@ -4,6 +4,10 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"net/http"
+	"net/url"
+
+	"github.com/kriive/lil"
 )
 
 type Engine struct {
@@ -12,7 +16,7 @@ type Engine struct {
 }
 
 type Renderer interface {
-	Render(w io.Writer, data any) error
+	Render(w io.Writer, r *http.Request, data any) error
 }
 
 func NewEngine(fs fs.FS) (*Engine, error) {
@@ -39,8 +43,22 @@ type render struct {
 	tmpl *template.Template
 }
 
-func (r *render) Render(w io.Writer, data any) error {
-	return r.tmpl.ExecuteTemplate(w, "base", data)
+type renderData struct {
+	User  *lil.User
+	URL   *url.URL
+	Data  any
+	Flash string
+}
+
+func (ren *render) Render(w io.Writer, r *http.Request, data any) error {
+	pass := &renderData{
+		User:  lil.UserFromContext(r.Context()),
+		URL:   r.URL,
+		Data:  data,
+		Flash: lil.FlashFromContext(r.Context()),
+	}
+
+	return ren.tmpl.ExecuteTemplate(w, "base", pass)
 }
 
 func newRender(t *template.Template) (*render, error) {

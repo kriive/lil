@@ -58,6 +58,10 @@ func findShorts(ctx context.Context, tx *Tx, filter lil.ShortFilter) (_ []*lil.S
 		where, args = append(where, "url = ?"), append(args, *v)
 	}
 
+	// Limit shorts to thos the owner has created.
+	userID := lil.UserIDFromContext(ctx)
+	where, args = append(where, "owner_id = ?"), append(args, userID)
+
 	rows, err := tx.QueryContext(ctx, `
 			SELECT
 				key,
@@ -165,7 +169,8 @@ func createShort(ctx context.Context, tx *Tx, short *lil.Short) error {
 }
 
 // Permanently removes a Short. Returns a ENOTFOUND if the key
-// does not belong to any Short.
+// does not belong to any Short. Returns a ENOTAUTHORIZED if the
+// short does not belong to the current user.
 func (s *ShortService) DeleteShort(ctx context.Context, key string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -181,8 +186,10 @@ func (s *ShortService) DeleteShort(ctx context.Context, key string) error {
 }
 
 func deleteShort(ctx context.Context, tx *Tx, key string) error {
-	if _, err := findShortByKey(ctx, tx, key); err != nil {
+	if short, err := findShortByKey(ctx, tx, key); err != nil {
 		return err
+	} else if !lil.CanEditShort(ctx, short) {
+		return lil.Errorf(lil.EUNAUTHORIZED, "Only the owner can delete a short.")
 	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM shorts WHERE key = ?`, key); err != nil {
