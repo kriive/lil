@@ -160,6 +160,10 @@ table {
     width: 100%;
 }
 
+.original-url {
+    overflow-wrap: anywhere;
+}
+
 .fake-a {
     background: none;
     border: none;
