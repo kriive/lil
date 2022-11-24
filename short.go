@@ -32,8 +32,14 @@ type Short struct {
 // ShortService represents a service for managing Shorts.
 type ShortService interface {
 	// Retrieves a single Short by Key. Returns ENOTFOUND if the Short
-	// object does not exist.
+	// object does not exist. Returns EUNAUTHORIZED if the Short does not
+	// belong to the user.
 	FindShortByKey(ctx context.Context, key string) (*Short, error)
+
+	// Retrieves a single Short by Key. Returns ENOTFOUND if the Short
+	// object does not exist. Does not check if the Short does belong
+	// to the user.
+	SearchShort(ctx context.Context, key string) (*Short, error)
 
 	// Retrieves a list of Shorts based on a filter. Returns a count of the
 	// matching objects that may be different from the actual count of objects

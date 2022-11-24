@@ -45,6 +45,22 @@ func TestShortService_CreateShort(t *testing.T) {
 		}
 	})
 
+	t.Run("ErrUnauthorized", func(t *testing.T) {
+		db := MustOpenDB(t)
+		defer MustCloseDB(t, db)
+
+		s := sqlite.NewShortService(db)
+		url, _ := url.Parse("https://google.com")
+		if err := s.CreateShort(context.Background(), &lil.Short{
+			URL: *url,
+			Key: "12345",
+		}); err == nil {
+			t.Fatal("expected error")
+		} else if lil.ErrorCode(err) != lil.EUNAUTHORIZED || lil.ErrorMessage(err) != "You must be logged in to create a short." {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("ErrMissingURL", func(t *testing.T) {
 		db := MustOpenDB(t)
 		defer MustCloseDB(t, db)
@@ -135,6 +151,60 @@ func TestShortService_CreateShort(t *testing.T) {
 	})
 }
 
+func TestShortsService_DeleteShorts(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		db := MustOpenDB(t)
+		defer MustCloseDB(t, db)
+
+		_, ctx := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test",
+			Email: "Test",
+		})
+
+		url, _ := url.Parse("https://1.example.com")
+		key := "12345"
+		MustCreateShort(t, ctx, db, &lil.Short{URL: *url, Key: key})
+
+		s := sqlite.NewShortService(db)
+		if err := s.DeleteShort(ctx, key); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := s.FindShortByKey(ctx, key); err == nil {
+			t.Fatalf("expected err")
+		} else if lil.ErrorCode(err) != lil.ENOTFOUND || lil.ErrorMessage(err) != "Short not found." {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("ErrUnauthorized", func(t *testing.T) {
+		db := MustOpenDB(t)
+		defer MustCloseDB(t, db)
+
+		_, ctx := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test",
+			Email: "Test",
+		})
+
+		_, ctx2 := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "unauthorized",
+			Email: "unauthorized",
+		})
+
+		url, _ := url.Parse("https://1.example.com")
+		key := "12345"
+		MustCreateShort(t, ctx, db, &lil.Short{URL: *url, Key: key})
+
+		s := sqlite.NewShortService(db)
+		if err := s.DeleteShort(ctx2, key); err == nil {
+			t.Fatal("expected err")
+		} else if lil.ErrorCode(err) != lil.ENOTFOUND || lil.ErrorMessage(err) != "Short not found." {
+			t.Fatal(err)
+		}
+
+	})
+}
+
 func TestShortService_FindShorts(t *testing.T) {
 	t.Run("Key", func(t *testing.T) {
 		db := MustOpenDB(t)
@@ -170,6 +240,51 @@ func TestShortService_FindShorts(t *testing.T) {
 		} else if got, want := a[2].Key, key3; got != want {
 			t.Fatalf("key=%v, want %v", got, want)
 		} else if got, want := n, 3; got != want {
+			t.Fatalf("n=%v, want %v", got, want)
+		}
+	})
+
+	t.Run("OnlyOwnedShorts", func(t *testing.T) {
+		db := MustOpenDB(t)
+		defer MustCloseDB(t, db)
+
+		_, ctx1 := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test",
+			Email: "Test",
+		})
+
+		_, ctx2 := MustCreateUser(t, context.Background(), db, &lil.User{
+			Name:  "Test1",
+			Email: "Test1",
+		})
+
+		url1, _ := url.Parse("https://1.example.com")
+		key1 := "12345"
+		MustCreateShort(t, ctx1, db, &lil.Short{URL: *url1, Key: key1})
+
+		url2, _ := url.Parse("https://2.example.com")
+		key2 := "23456"
+		MustCreateShort(t, ctx2, db, &lil.Short{URL: *url2, Key: key2})
+
+		s := sqlite.NewShortService(db)
+
+		if a, n, err := s.FindShorts(ctx1, lil.ShortFilter{}); err != nil {
+			t.Fatal(err)
+		} else if got, want := len(a), 1; got != want {
+			t.Fatalf("len=%v, want %v", got, want)
+		} else if got, want := a[0].Key, key1; got != want {
+			t.Fatalf("key=%v, want %v", got, want)
+		} else if got, want := n, 1; got != want {
+			t.Fatalf("n=%v, want %v", got, want)
+		}
+
+		if b, n, err := s.FindShorts(ctx2, lil.ShortFilter{}); err != nil {
+			t.Fatal(err)
+		} else if got, want := len(b), 1; got != want {
+			t.Fatalf("len=%v, want %v", got, want)
+		} else if got, want := b[0].Key, key2; got != want {
+			t.Fatalf("key=%v, want %v", got, want)
+		} else if got, want := n, 1; got != want {
 			t.Fatalf("n=%v, want %v", got, want)
 		}
 	})

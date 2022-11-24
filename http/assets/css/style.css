@@ -35,10 +35,6 @@ ul.topnav {
     background-color: #2a9d8f;
 }
 
-ul.topnav li {
-    float: left;
-}
-
 ul.topnav li a {
     display: block;
     color: #FFFFFF;
@@ -55,10 +51,6 @@ ul.topnav li a:hover:not(.active):not(.logo) {
 ul.topnav li a.active:not(.logo) {
     color: black;
     background-color: #e9c46a;
-}
-
-ul.topnav li.right {
-    float: right;
 }
 
 div.login {
@@ -94,15 +86,26 @@ hr {
     border-bottom: 1px solid rgba(255, 255, 255, 0.3);
 }
 
-@media screen and (max-width: 800px) {
+ul.topnav li.right,
+ul.topnav li {
+    float: none;
+}
 
-    ul.topnav li.right,
+div.content {
+    margin: 12px;
+}
+
+@media screen and (min-width: 900px) {
+    ul.topnav li.right {
+        float: right;
+    }
+
     ul.topnav li {
-        float: none;
+        float: left;
     }
 
     div.content {
-        margin: 12px;
+        margin: 0;
     }
 }
 

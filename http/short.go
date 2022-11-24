@@ -180,7 +180,7 @@ func (s *Server) handleShortenedURL() http.HandlerFunc {
 			return
 		}
 
-		short, err := s.ShortService.FindShortByKey(r.Context(), key)
+		short, err := s.ShortService.SearchShort(r.Context(), key)
 		if err != nil {
 			Error(w, r, err)
 			return
