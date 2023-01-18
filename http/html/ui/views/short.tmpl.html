@@ -1,0 +1,14 @@
+{{define "title"}}new short{{end}}
+
+{{define "main"}}
+<h1>shorten</h1>
+<p>type here a url that you want to shrink. we only support http and https at the moment. please don't use this service
+    to distribute malware or other unwelcome content. if you do, i am afraid i would have to take lil down.</p>
+<hr>
+<form class="short" action="" method="POST">
+    <div class="short">
+        <input type="url" placeholder="type your url here" required id="url" name="url" tabindex="1" />
+        <button type="submit" class="shorten" tabindex="2">shorten!</button>
+    </div>
+</form>
+{{end}}

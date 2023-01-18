@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/kriive/lil"
@@ -24,16 +25,35 @@ func (s *ShortService) FindShortByKey(ctx context.Context, key string) (*lil.Sho
 	}
 	defer tx.Rollback()
 
-	short, err := findShortByKey(ctx, tx, key)
+	short, err := findShortByKey(ctx, tx, key, false)
 	if err != nil {
+		return nil, err
+	} else if err := attachShortAssociations(ctx, tx, short); err != nil {
 		return nil, err
 	}
 
 	return short, err
 }
 
-func findShortByKey(ctx context.Context, tx *Tx, key string) (*lil.Short, error) {
-	shorts, _, err := findShorts(ctx, tx, lil.ShortFilter{Key: &key})
+func (s *ShortService) SearchShort(ctx context.Context, key string) (*lil.Short, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	short, err := findShortByKey(ctx, tx, key, true)
+	if err != nil {
+		return nil, err
+	} else if err := attachShortAssociations(ctx, tx, short); err != nil {
+		return nil, err
+	}
+
+	return short, err
+}
+
+func findShortByKey(ctx context.Context, tx *Tx, key string, all bool) (*lil.Short, error) {
+	shorts, _, err := findShorts(ctx, tx, lil.ShortFilter{Key: &key}, all)
 	if err != nil {
 		return nil, err
 	} else if len(shorts) == 0 {
@@ -43,7 +63,7 @@ func findShortByKey(ctx context.Context, tx *Tx, key string) (*lil.Short, error)
 	return shorts[0], nil
 }
 
-func findShorts(ctx context.Context, tx *Tx, filter lil.ShortFilter) (_ []*lil.Short, n int, err error) {
+func findShorts(ctx context.Context, tx *Tx, filter lil.ShortFilter, all bool) (_ []*lil.Short, n int, err error) {
 	// Build WHERE clause. Each part of the WHERE clause is AND-ed together.
 	// Values are appended to an arg list to avoid SQL injection.
 	where, args := []string{"1 = 1"}, []any{}
@@ -55,10 +75,17 @@ func findShorts(ctx context.Context, tx *Tx, filter lil.ShortFilter) (_ []*lil.S
 		where, args = append(where, "url = ?"), append(args, *v)
 	}
 
+	// Limit shorts to those the owner has created.
+	if !all {
+		userID := lil.UserIDFromContext(ctx)
+		where, args = append(where, "owner_id = ?"), append(args, userID)
+	}
+
 	rows, err := tx.QueryContext(ctx, `
 			SELECT
 				key,
 				url,
+				owner_id,
 				created_at,
 				updated_at,
 				COUNT(*) OVER()
@@ -78,6 +105,7 @@ func findShorts(ctx context.Context, tx *Tx, filter lil.ShortFilter) (_ []*lil.S
 		if err := rows.Scan(
 			&short.Key,
 			(*DBUrl)(&short.URL),
+			&short.OwnerID,
 			(*NullTime)(&short.CreatedAt),
 			(*NullTime)(&short.UpdatedAt),
 			&n,
@@ -103,7 +131,7 @@ func (s *ShortService) FindShorts(ctx context.Context, filter lil.ShortFilter) (
 	}
 	defer tx.Rollback()
 
-	return findShorts(ctx, tx, filter)
+	return findShorts(ctx, tx, filter, false)
 }
 
 // Creates a new Short.
@@ -116,12 +144,19 @@ func (s *ShortService) CreateShort(ctx context.Context, short *lil.Short) error 
 
 	if err := createShort(ctx, tx, short); err != nil {
 		return err
+	} else if attachShortAssociations(ctx, tx, short); err != nil {
+		return err
 	}
-
 	return tx.Commit()
 }
 
 func createShort(ctx context.Context, tx *Tx, short *lil.Short) error {
+	ownerID := lil.UserIDFromContext(ctx)
+	if ownerID == 0 {
+		return lil.Errorf(lil.EUNAUTHORIZED, "You must be logged in to create a short.")
+	}
+	short.OwnerID = ownerID
+
 	short.CreatedAt = tx.now
 	short.UpdatedAt = short.CreatedAt
 
@@ -133,13 +168,15 @@ func createShort(ctx context.Context, tx *Tx, short *lil.Short) error {
 			INSERT INTO shorts (
 				url,
 				key,
+				owner_id,
 				created_at,
 				updated_at
 			)
-			VALUES (?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?)
 	`,
 		(*DBUrl)(&short.URL),
 		short.Key,
+		short.OwnerID,
 		(*NullTime)(&short.CreatedAt),
 		(*NullTime)(&short.UpdatedAt),
 	)
@@ -151,7 +188,8 @@ func createShort(ctx context.Context, tx *Tx, short *lil.Short) error {
 }
 
 // Permanently removes a Short. Returns a ENOTFOUND if the key
-// does not belong to any Short.
+// does not belong to any Short. Returns a ENOTAUTHORIZED if the
+// short does not belong to the current user.
 func (s *ShortService) DeleteShort(ctx context.Context, key string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -167,13 +205,23 @@ func (s *ShortService) DeleteShort(ctx context.Context, key string) error {
 }
 
 func deleteShort(ctx context.Context, tx *Tx, key string) error {
-	if _, err := findShortByKey(ctx, tx, key); err != nil {
+	if short, err := findShortByKey(ctx, tx, key, false); err != nil {
 		return err
+	} else if !lil.CanEditShort(ctx, short) {
+		return lil.Errorf(lil.EUNAUTHORIZED, "Only the owner can delete a short.")
 	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM shorts WHERE key = ?`, key); err != nil {
 		return FormatError(err)
 	}
 
+	return nil
+}
+
+// attachShortAssociations is a helper function to look up and attach the owner user to the short.
+func attachShortAssociations(ctx context.Context, tx *Tx, short *lil.Short) (err error) {
+	if short.Owner, err = findUserByID(ctx, tx, short.OwnerID); err != nil {
+		return fmt.Errorf("attach short user: %w", err)
+	}
 	return nil
 }

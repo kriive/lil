@@ -2,14 +2,24 @@ package http
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/gorilla/securecookie"
 	"github.com/kriive/lil"
+	"github.com/kriive/lil/http/assets"
+	"github.com/kriive/lil/http/html"
 	"golang.org/x/crypto/acme/autocert"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/github"
+	"golang.org/x/oauth2/google"
 )
 
 const ShutdownTimeout = time.Second * 5
@@ -17,20 +27,43 @@ const ShutdownTimeout = time.Second * 5
 type Server struct {
 	ln     net.Listener
 	server *http.Server
-
 	router chi.Router
+	sc     *securecookie.SecureCookie
 
 	// Bind address & domain for the server's listener.
 	// If domain is specified, server is run on TLS using acme/autocert.
 	Addr   string
 	Domain string
 
+	// Keys used for secure cookie encryption.
+	HashKey  string
+	BlockKey string
+
+	// GitHub OAuth settings.
+	GitHubClientID     string
+	GitHubClientSecret string
+
+	// Google OAuth settings.
+	GoogleClientID     string
+	GoogleClientSecret string
+
 	// Link length
 	KeyLength int
 	Alphabet  string
 
 	// Services used by the various HTTP routes.
+	AuthService  lil.AuthService
 	ShortService lil.ShortService
+	UserService  lil.UserService
+
+	// Views
+	Views struct {
+		IndexView       html.Renderer
+		ShortsIndexView html.Renderer
+		LoginView       html.Renderer
+		ShortView       html.Renderer
+		NewShort        html.Renderer
+	}
 }
 
 func NewServer() *Server {
@@ -39,11 +72,64 @@ func NewServer() *Server {
 		router: chi.NewRouter(),
 	}
 
-	s.server.Handler = s.router
+	// Our router is wrapped by another function handler to perform some
+	// middleware-like tasks that cannot be performed by actual middleware.
+	// This includes changing route paths for JSON endpoints & overridding methods.
+	s.server.Handler = http.HandlerFunc(s.serveHTTP)
 
-	s.registerShortRoutes(s.router)
+	// Setup endpoint to display deployed version.
+	s.router.Get("/debug/version", s.handleVersion)
+	s.router.Get("/debug/commit", s.handleCommit)
+
+	router := chi.NewRouter()
+	router.Use(s.authenticate)
+	router.Use(loadFlash)
+
+	router.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.FS(assets.FS))))
+
+	// Unauthenticated routes
+	router.Group(func(r chi.Router) {
+		s.registerAuthRoutes(r)
+		s.registerShortPublicRoutes(r)
+	})
+
+	// Authenticated routes
+	router.Group(func(r chi.Router) {
+		r.Use(s.requireAuth)
+		s.registerShortPrivateRoutes(r)
+	})
+
+	router.Get("/", s.handleIndex())
+
+	s.router.Mount("/", router)
 
 	return s
+}
+
+func (s *Server) handleIndex() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if lil.UserFromContext(r.Context()) != nil {
+			http.Redirect(w, r, "/short/new", http.StatusFound)
+			return
+		}
+
+		if err := s.Views.IndexView.Render(w, r, nil); err != nil {
+			Error(w, r, err)
+			return
+		}
+	}
+}
+
+// handleVersion displays the deployed version.
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(lil.Version))
+}
+
+// handleVersion displays the deployed commit.
+func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(lil.Commit))
 }
 
 // UseTLS returns true if the cert & key file are specified.
@@ -93,7 +179,50 @@ func (s *Server) Close() error {
 	return s.server.Shutdown(ctx)
 }
 
+// OAuth2Config returns the GitHub OAuth2 configuration.
+func (s *Server) OAuth2Config(provider string) *oauth2.Config {
+	switch provider {
+	case lil.AuthSourceGitHub:
+		return &oauth2.Config{
+			ClientID:     s.GitHubClientID,
+			ClientSecret: s.GitHubClientSecret,
+			Scopes:       []string{},
+			Endpoint:     github.Endpoint,
+		}
+	case lil.AuthSourceGoogle:
+		return &oauth2.Config{
+			ClientID:     s.GoogleClientID,
+			ClientSecret: s.GoogleClientSecret,
+			Scopes: []string{
+				"openid",
+				"https://www.googleapis.com/auth/userinfo.email",
+				"https://www.googleapis.com/auth/userinfo.profile",
+			},
+			Endpoint: google.Endpoint,
+		}
+	}
+
+	return nil
+}
+
 func (s *Server) Open() (err error) {
+	// Initialize our secure cookie with our encryption keys.
+	if err := s.openSecureCookie(); err != nil {
+		return err
+	}
+
+	if s.GitHubClientID == "" {
+		return fmt.Errorf("github client id required")
+	} else if s.GitHubClientSecret == "" {
+		return fmt.Errorf("github client secret required")
+	}
+
+	if s.GoogleClientID == "" {
+		return fmt.Errorf("google client id required")
+	} else if s.GoogleClientSecret == "" {
+		return fmt.Errorf("google client secret required")
+	}
+
 	// Open a listener on our bind address.
 	if s.Domain != "" {
 		s.ln = autocert.NewListener(s.Domain)
@@ -111,10 +240,210 @@ func (s *Server) Open() (err error) {
 	return nil
 }
 
+// openSecureCookie validates & decodes the block & hash key and initializes
+// our secure cookie implementation.
+func (s *Server) openSecureCookie() error {
+	// Ensure hash & block key are set.
+	if s.HashKey == "" {
+		return fmt.Errorf("hash key required")
+	} else if s.BlockKey == "" {
+		return fmt.Errorf("block key required")
+	}
+
+	// Decode from hex to byte slices.
+	hashKey, err := hex.DecodeString(s.HashKey)
+	if err != nil {
+		return fmt.Errorf("invalid hash key")
+	}
+	blockKey, err := hex.DecodeString(s.BlockKey)
+	if err != nil {
+		return fmt.Errorf("invalid block key")
+	}
+
+	// Initialize cookie management & encode our cookie data as JSON.
+	s.sc = securecookie.New(hashKey, blockKey)
+	s.sc.SetSerializer(securecookie.JSONEncoder{})
+
+	return nil
+}
+
+// session returns session data from the secure cookie.
+func (s *Server) session(r *http.Request) (Session, error) {
+	// Read session data from cookie.
+	// If it returns an error then simply return an empty session.
+	cookie, err := r.Cookie(SessionCookieName)
+	if err != nil {
+		return Session{}, nil
+	}
+
+	// Decode session data into a Session object & return.
+	var session Session
+	if err := s.UnmarshalSession(cookie.Value, &session); err != nil {
+		return Session{}, err
+	}
+	return session, nil
+}
+
+// setSession creates a secure cookie with session data.
+func (s *Server) setSession(w http.ResponseWriter, session Session) error {
+	// Encode session data to JSON.
+	buf, err := s.MarshalSession(session)
+	if err != nil {
+		return err
+	}
+
+	// Write cookie to HTTP response.
+	http.SetCookie(w, &http.Cookie{
+		Name:     SessionCookieName,
+		Value:    buf,
+		Path:     "/",
+		Expires:  time.Now().Add(30 * 24 * time.Hour),
+		Secure:   s.UseTLS(),
+		HttpOnly: true,
+	})
+	return nil
+}
+
+// MarshalSession encodes session data to string.
+// This is exported to allow the unit tests to generate fake sessions.
+func (s *Server) MarshalSession(session Session) (string, error) {
+	return s.sc.Encode(SessionCookieName, session)
+}
+
+// UnmarshalSession decodes session data into a Session object.
+// This is exported to allow the unit tests to generate fake sessions.
+func (s *Server) UnmarshalSession(data string, session *Session) error {
+	return s.sc.Decode(SessionCookieName, data, &session)
+}
+
 // ListenAndServeTLSRedirect runs an HTTP server on port 80 to redirect users
 // to the TLS-enabled port 443 server.
 func ListenAndServeTLSRedirect(domain string) error {
 	return http.ListenAndServe(":80", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "https://"+domain, http.StatusFound)
 	}))
+}
+
+func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	// Override method for forms passing "_method" value.
+	if r.Method == http.MethodPost {
+		switch v := r.PostFormValue("_method"); v {
+		case http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete:
+			r.Method = v
+		}
+	}
+
+	// Override content-type for certain extensions.
+	// This allows us to easily cURL API endpoints with a ".json" or ".csv"
+	// extension instead of having to explicitly set Content-type & Accept headers.
+	// The extensions are removed so they don't appear in the routes.
+	switch ext := path.Ext(r.URL.Path); ext {
+	case ".json":
+		r.Header.Set("Accept", "application/json")
+		r.Header.Set("Content-type", "application/json")
+		r.URL.Path = strings.TrimSuffix(r.URL.Path, ext)
+	case ".csv":
+		r.Header.Set("Accept", "text/csv")
+		r.URL.Path = strings.TrimSuffix(r.URL.Path, ext)
+	}
+
+	// Delegate remaining HTTP handling to the gorilla router.
+	s.router.ServeHTTP(w, r)
+}
+
+// authenticate is middleware for loading session data from a cookie or API key header.
+func (s *Server) authenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Login via API key, if available.
+		if v := r.Header.Get("Authorization"); strings.HasPrefix(v, "Bearer ") {
+			apiKey := strings.TrimPrefix(v, "Bearer ")
+
+			// Lookup user by API key. Display error if not found.
+			// Otherwise set
+			users, _, err := s.UserService.FindUsers(r.Context(), lil.UserFilter{APIKey: &apiKey})
+			if err != nil {
+				Error(w, r, err)
+				return
+			} else if len(users) == 0 {
+				Error(w, r, lil.Errorf(lil.EUNAUTHORIZED, "Invalid API key."))
+				return
+			}
+
+			// Update request context to include authenticated user.
+			r = r.WithContext(lil.NewContextWithUser(r.Context(), users[0]))
+
+			// Delegate to next HTTP handler.
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Read session from secure cookie.
+		session, _ := s.session(r)
+
+		// Read user, if available. Ignore if fetching assets.
+		if session.UserID != 0 {
+			if user, err := s.UserService.FindUserByID(r.Context(), session.UserID); err != nil {
+				log.Printf("cannot find session user: id=%d err=%s", session.UserID, err)
+			} else {
+				r = r.WithContext(lil.NewContextWithUser(r.Context(), user))
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireNoAuth is middleware for requiring no authentication.
+// This is used if a user goes to log in but is already logged in.
+func (s *Server) requireNoAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// If user is logged in, redirect to the home page.
+		if userID := lil.UserIDFromContext(r.Context()); userID != 0 {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+
+		// Delegate to next HTTP handler.
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireAuth is middleware for requiring authentication. This is used by
+// nearly every page except for the login & oauth pages.
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// If user is logged in, delegate to next HTTP handler.
+		if userID := lil.UserIDFromContext(r.Context()); userID != 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Otherwise save the current URL (without scheme/host).
+		redirectURL := r.URL
+		redirectURL.Scheme, redirectURL.Host = "", ""
+
+		// Save the URL to the session and redirect to the log in page.
+		// On successful login, the user will be redirected to their original location.
+		session, _ := s.session(r)
+		session.RedirectURL = redirectURL.String()
+		if err := s.setSession(w, session); err != nil {
+			log.Printf("http: cannot set session: %s", err)
+		}
+		http.Redirect(w, r, "/login", http.StatusFound)
+	})
+}
+
+// loadFlash is middleware for reading flash data from the cookie.
+// Data is only loaded once and then immediately cleared... hence the name "flash".
+func loadFlash(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Read & clear flash from cookies.
+		if cookie, _ := r.Cookie("flash"); cookie != nil {
+			SetFlash(w, "")
+			r = r.WithContext(lil.NewContextWithFlash(r.Context(), cookie.Value))
+		}
+
+		// Delegate to next HTTP handler.
+		next.ServeHTTP(w, r)
+	})
 }

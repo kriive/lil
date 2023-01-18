@@ -1,0 +1,7 @@
+{{define "title"}}success - new short{{end}}
+
+{{define "main"}}
+<h2>new short</h2>
+<p>here's the short url for <a href="{{.Data.OriginalURL}}">this link</a>.</p>
+<p>your shortened url: <a href="{{.Data.ShortURL}}">{{.Data.ShortURL}}</a>.</p>
+{{end}}

@@ -1,0 +1,34 @@
+{{define "title"}}all shorts{{end}}
+
+{{define "main"}}
+<h1>shorts</h1>
+<p>here are all the short links that you have generated. to generate another short link head to the <a
+        href="/">homepage</a>. <b>right click</b> the short link to copy its full link.</p>
+<div>
+<table>
+    <tr>
+        <th>original url</th>
+        <th>key</th>
+        <th>action</th>
+    </tr>
+    {{range .Data.Shorts}}
+    <tr>
+        <td class="original-url">{{.URL.String}}</td>
+        <td><a href="/s/{{.Key}}">{{.Key}}</a></td>
+        <td>
+            <form action="/s/{{.Key}}" method="POST">
+                <input type="hidden" name="_method" value="DELETE" />
+                <button type="submit" class="fake-a">delete</button>
+            </form>
+        </td>
+    </tr>
+    {{else}}
+    <tr>
+        <td>no shorts found, add some <a href="/short/new">here</a>?</td>
+        <td></td>
+        <td></td>
+    </tr>
+    {{end}}
+</table>
+</div>
+{{end}}

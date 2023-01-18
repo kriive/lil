@@ -15,6 +15,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/kriive/lil"
 	"github.com/kriive/lil/http"
+	"github.com/kriive/lil/http/html"
 	"github.com/kriive/lil/sqlite"
 )
 
@@ -91,18 +92,68 @@ func (m *Main) Run(ctx context.Context) (err error) {
 	if m.DB.DSN, err = expandDSN(m.Config.DB.DSN); err != nil {
 		return fmt.Errorf("cannot expand dsn: %w", err)
 	}
+
 	if err := m.DB.Open(); err != nil {
 		return fmt.Errorf("cannot open db: %w", err)
 	}
 
+	htmlEngine, err := html.NewEngine(html.FS)
+	if err != nil {
+		return err
+	}
+
+	loginView, err := htmlEngine.LoginView()
+	if err != nil {
+		return err
+	}
+
+	shortView, err := htmlEngine.ShortView()
+	if err != nil {
+		return err
+	}
+
+	newShort, err := htmlEngine.NewShortView()
+	if err != nil {
+		return err
+	}
+
+	shortIndexView, err := htmlEngine.ShortsIndexView()
+	if err != nil {
+		return err
+	}
+
+	indexView, err := htmlEngine.IndexView()
+	if err != nil {
+		return err
+	}
+
 	shortService := sqlite.NewShortService(m.DB)
+	authService := sqlite.NewAuthService(m.DB)
+	userService := sqlite.NewUserService(m.DB)
 
 	m.HTTPServer.Addr = m.Config.HTTP.Addr
 	m.HTTPServer.Domain = m.Config.HTTP.Domain
 	m.HTTPServer.Alphabet = m.Config.General.Alphabet
 	m.HTTPServer.KeyLength = m.Config.General.KeyLength
 
+	m.HTTPServer.HashKey = m.Config.HTTP.HashKey
+	m.HTTPServer.BlockKey = m.Config.HTTP.BlockKey
+
+	m.HTTPServer.GitHubClientID = m.Config.GitHub.ClientID
+	m.HTTPServer.GitHubClientSecret = m.Config.GitHub.ClientSecret
+	m.HTTPServer.GoogleClientID = m.Config.Google.ClientID
+	m.HTTPServer.GoogleClientSecret = m.Config.Google.ClientSecret
+
+	m.HTTPServer.AuthService = authService
 	m.HTTPServer.ShortService = shortService
+	m.HTTPServer.UserService = userService
+
+	// Attach all the views
+	m.HTTPServer.Views.LoginView = loginView
+	m.HTTPServer.Views.ShortView = shortView
+	m.HTTPServer.Views.NewShort = newShort
+	m.HTTPServer.Views.IndexView = indexView
+	m.HTTPServer.Views.ShortsIndexView = shortIndexView
 
 	// Start the HTTP server.
 	if err := m.HTTPServer.Open(); err != nil {
@@ -149,7 +200,6 @@ func (m *Main) Close() error {
 
 // ParseFlags parses the command line arguments & loads the config.
 
-//
 // This exists separately from the Run() function so that we can skip it
 // during end-to-end tests. Those tests will configure manually and call Run().
 func (m *Main) ParseFlags(ctx context.Context, args []string) error {
@@ -187,13 +237,25 @@ type Config struct {
 	} `toml:"db"`
 
 	HTTP struct {
-		Addr   string `toml:"addr"`
-		Domain string `toml:"domain"`
+		Addr     string `toml:"addr"`
+		Domain   string `toml:"domain"`
+		HashKey  string `toml:"hash-key"`
+		BlockKey string `toml:"block-key"`
 	} `toml:"http"`
+
+	GitHub struct {
+		ClientID     string `toml:"client-id"`
+		ClientSecret string `toml:"client-secret"`
+	} `toml:"github"`
+
+	Google struct {
+		ClientID     string `toml:"client-id"`
+		ClientSecret string `toml:"client-secret"`
+	} `toml:"google"`
 
 	General struct {
 		Alphabet  string `toml:"alphabet"`
-		KeyLength int    `toml:"key_length"`
+		KeyLength int    `toml:"key-length"`
 	} `toml:"general"`
 }
 
